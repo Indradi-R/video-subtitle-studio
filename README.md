@@ -103,7 +103,16 @@ Saat folder dibuka, aplikasi langsung mengambil cuplikan adegan di detik ke-2 vi
 * **Pencarian Kalimat**: Temukan dialog tertentu dengan fitur cari kata kunci di dalam subtitle.
 * **Inline Editable**: Setiap baris terjemahan dapat langsung diubah manual sebelum diekspor.
 
-### 4. Mode Batch Otomatis (1-Klik)
+### 4. Gaya Bahasa Percakapan Alami (Conversational Indonesian)
+Tersedia 3 pilihan gaya bahasa terjemahan:
+* **Santai / Sehari-hari (Netflix Style)**: Menghasilkan terjemahan subtitle percakapan yang alami, santai, dan mengalir (menggunakan kata-kata seperti *kamu/lu*, *nggak*, *udah*, *banget*, *kenapa*, *gimana* alih-alih bahasa mesin yang kaku).
+* **Standar Alami**: Bahasa kasual yang tetap sopan dan luwes.
+* **Formal / Baku**: Bahasa resmi sesuai pedoman tata bahasa baku.
+
+### 5. Pemrosesan Senyap Bebas CMD Popup (Silent Background Engine)
+Seluruh proses inspeksi FFmpeg, ekstraksi, dan pembuatan thumbnail berjalan di latar belakang menggunakan flag `CREATE_NO_WINDOW`, sehingga antarmuka desktop tetap bersih tanpa ada jendela konsol CMD hitam yang berkedip.
+
+### 6. Mode Batch Otomatis (1-Klik)
 Tombol **"⚡ Batch Translate Semua Video di Folder"** secara otomatis memindai seluruh serial atau koleksi anime dalam folder, mengekstrak subtitle bahasa asal, menerjemahkannya, dan menyimpannya menjadi file `.srt` untuk masing-masing video.
 
 ---
