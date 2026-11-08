@@ -419,36 +419,72 @@ class SubtitleTranslatorApp(ctk.CTk):
             return
 
         self.lbl_folder_path.configure(text=folder)
-        self.lbl_status.configure(text="Memindai video dan mengekstrak thumbnail...")
-        self.progress_bar.set(0.2)
+        self.lbl_status.configure(text="Memindai file video...")
+        self.progress_bar.set(0.1)
 
-        threading.Thread(target=self._scan_folder_worker, args=(folder,), daemon=True).start()
-
-    def _scan_folder_worker(self, folder: str):
+        # 1. Instantly scan files
         video_paths = self.extractor.scan_folder(folder)
-        items = []
-        for p in video_paths:
-            try:
-                item = self.extractor.get_video_item(p, load_tracks=True)
-                items.append(item)
-            except Exception as e:
-                print(f"Error reading {p.name}: {e}")
+        if not video_paths:
+            self.all_video_items = []
+            self.displayed_video_items = []
+            self._render_video_cards()
+            self.video_scroll_frame.configure(label_text="Daftar Video (0)")
+            self.lbl_status.configure(text="Tidak ditemukan file video di folder ini.")
+            messagebox.showinfo(
+                "Tidak Ditemukan Video",
+                "Tidak ditemukan file video (.mkv, .mp4, .webm, .avi, dll.) di folder yang dipilih."
+            )
+            return
 
-        self.all_video_items = items
-        self.after(0, self._on_videos_loaded)
-
-    def _on_videos_loaded(self):
-        total = len(self.all_video_items)
-        self.video_scroll_frame.configure(label_text=f"Daftar Video ({total})")
-        self.lbl_status.configure(text=f"Berhasil memuat {total} file video.")
-        self.progress_bar.set(1.0)
-
+        # 2. Instantly populate fast items (instant UI display!)
+        self.all_video_items = [self.extractor.get_fast_video_item(p) for p in video_paths]
         self._apply_video_filter_and_sort()
+        self.lbl_status.configure(text=f"Ditemukan {len(self.all_video_items)} video. Memuat info di latar belakang...")
+        self.video_scroll_frame.configure(label_text=f"Daftar Video ({len(self.all_video_items)})")
 
         if self.displayed_video_items:
             self._select_video(self.displayed_video_items[0])
-        else:
-            self.lbl_active_title.configure(text="Tidak ada video yang cocok dengan filter.")
+
+        # 3. Start quiet background thread to load tracks & thumbnails without freezing UI or popping up CMD
+        threading.Thread(target=self._async_load_metadata_worker, args=(self.all_video_items,), daemon=True).start()
+
+    def _async_load_metadata_worker(self, items: List[VideoItem]):
+        total = len(items)
+        for i, item in enumerate(items, start=1):
+            try:
+                self.extractor.load_video_item_metadata(item)
+                self.after(0, lambda it=item: self._update_single_card(it))
+                self.after(0, lambda idx=i: self.progress_bar.set(idx / total))
+            except Exception as e:
+                print(f"Error loading {item.name}: {e}")
+
+        def done():
+            self.progress_bar.set(1.0)
+            self.lbl_status.configure(text=f"Siap. Semua informasi {total} video telah dimuat.")
+            if self.selected_video:
+                self._update_banner_details(self.selected_video)
+            if self.filter_category == "Hanya yang Punya Soft-Sub":
+                self._apply_video_filter_and_sort()
+
+        self.after(0, done)
+
+    def _update_single_card(self, item: VideoItem):
+        widgets = self.video_card_widgets.get(item.name)
+        if not widgets:
+            return
+        thumb_lbl = widgets["thumb_lbl"]
+        badge_lbl = widgets["badge_lbl"]
+
+        if item.thumbnail_path:
+            thumb_img = self._get_thumbnail_image(item.thumbnail_path)
+            thumb_lbl.configure(image=thumb_img)
+
+        badge_color = "#1b4d3e" if item.has_text_sub else "#333942"
+        badge_text = f"🟢 {item.sub_summary}" if item.has_text_sub else "⚪ Tanpa soft-sub"
+        badge_lbl.configure(text=f" {badge_text} ", fg_color=badge_color)
+
+        if self.selected_video and self.selected_video.name == item.name:
+            self._update_banner_details(item)
 
     def _on_video_search_change(self, event=None):
         self.video_search_query = self.video_search_entry.get().strip().lower()
@@ -497,8 +533,24 @@ class SubtitleTranslatorApp(ctk.CTk):
             widget.destroy()
         self.video_card_widgets.clear()
 
+        if not self.displayed_video_items:
+            empty_box = ctk.CTkFrame(self.video_scroll_frame, fg_color="transparent")
+            empty_box.pack(pady=40, fill="both", expand=True)
+            ctk.CTkLabel(
+                empty_box,
+                text="📁 Tidak ada file video yang ditemukan.",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color="gray60"
+            ).pack(pady=(0, 4))
+            ctk.CTkLabel(
+                empty_box,
+                text="Pastikan folder berisi file .mkv, .mp4, .webm, dll.",
+                font=ctk.CTkFont(size=11),
+                text_color="gray50"
+            ).pack()
+            return
+
         for item in self.displayed_video_items:
-            # Card Container
             card = ctk.CTkFrame(
                 self.video_scroll_frame,
                 fg_color=("gray85", "#21252b"),
@@ -509,12 +561,10 @@ class SubtitleTranslatorApp(ctk.CTk):
             card.pack(fill="x", pady=4, padx=2)
             card.grid_columnconfigure(1, weight=1)
 
-            # Thumbnail Image
             thumb_img = self._get_thumbnail_image(item.thumbnail_path)
             thumb_lbl = ctk.CTkLabel(card, text="", image=thumb_img)
             thumb_lbl.grid(row=0, column=0, rowspan=2, padx=8, pady=8, sticky="w")
 
-            # Video Title
             title_lbl = ctk.CTkLabel(
                 card,
                 text=item.name,
@@ -525,13 +575,11 @@ class SubtitleTranslatorApp(ctk.CTk):
             )
             title_lbl.grid(row=0, column=1, padx=(4, 8), pady=(8, 2), sticky="nw")
 
-            # Details (Badge + Size)
             meta_frame = ctk.CTkFrame(card, fg_color="transparent")
             meta_frame.grid(row=1, column=1, padx=(4, 8), pady=(0, 8), sticky="sw")
 
-            # Subtitle Badge
             badge_color = "#1b4d3e" if item.has_text_sub else "#333942"
-            badge_text = f"🟢 {item.sub_summary}" if item.has_text_sub else "⚪ Tanpa soft-sub"
+            badge_text = f"🟢 {item.sub_summary}" if item.metadata_loaded else "⏳ Memeriksa..."
             badge_lbl = ctk.CTkLabel(
                 meta_frame,
                 text=f" {badge_text} ",
@@ -549,7 +597,6 @@ class SubtitleTranslatorApp(ctk.CTk):
             )
             size_lbl.pack(side="left")
 
-            # Bind click events for all elements inside card
             def bind_click(w, video_item=item):
                 w.bind("<Button-1>", lambda e: self._select_video(video_item))
                 w.configure(cursor="hand2")
@@ -561,7 +608,11 @@ class SubtitleTranslatorApp(ctk.CTk):
             bind_click(badge_lbl)
             bind_click(size_lbl)
 
-            self.video_card_widgets[item.name] = card
+            self.video_card_widgets[item.name] = {
+                "card": card,
+                "thumb_lbl": thumb_lbl,
+                "badge_lbl": badge_lbl
+            }
 
         self._highlight_selected_card()
 
@@ -569,17 +620,27 @@ class SubtitleTranslatorApp(ctk.CTk):
         self.selected_video = item
         self._highlight_selected_card()
 
-        # Update top banner
+        if not item.metadata_loaded:
+            self.extractor.load_video_item_metadata(item)
+            self._update_single_card(item)
+
+        self._update_banner_details(item)
+
+        self.subtitle_entries.clear()
+        self.filtered_entries.clear()
+        self.current_page = 0
+        self._render_current_page()
+        self.lbl_sub_stats.configure(text="0 baris subtitle")
+        self.lbl_status.configure(text=f"Video dipilih: {item.name}")
+
+    def _update_banner_details(self, item: VideoItem):
         self.lbl_active_title.configure(text=item.name)
         self.lbl_active_meta.configure(text=f"Ukuran: {item.size_str}  •  {item.sub_summary}  •  {item.path.suffix.upper()}")
         self.banner_thumb_lbl.configure(image=self._get_thumbnail_image(item.thumbnail_path))
 
-        # Update Track OptionMenu
         if item.tracks:
             track_labels = [t.display_name for t in item.tracks]
             self.opt_track.configure(values=track_labels)
-            
-            # Auto-select first text track if available
             first_text = next((t for t in item.tracks if t.is_text), item.tracks[0])
             self.opt_track.set(first_text.display_name)
             self.selected_track = first_text
@@ -588,18 +649,11 @@ class SubtitleTranslatorApp(ctk.CTk):
             self.opt_track.set("(Tidak ada track subtitle)")
             self.selected_track = None
 
-        # Clear existing subtitle view
-        self.subtitle_entries.clear()
-        self.filtered_entries.clear()
-        self.current_page = 0
-        self._render_current_page()
-        self.lbl_sub_stats.configure(text="0 baris subtitle")
-        self.lbl_status.configure(text=f"Video dipilih: {item.name}")
-
     def _highlight_selected_card(self):
         if not self.selected_video:
             return
-        for name, card in self.video_card_widgets.items():
+        for name, widgets in self.video_card_widgets.items():
+            card = widgets["card"]
             if name == self.selected_video.name:
                 card.configure(
                     fg_color=("gray75", "#283547"),

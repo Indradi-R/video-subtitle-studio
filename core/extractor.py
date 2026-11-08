@@ -36,9 +36,12 @@ class VideoItem:
     tracks: List[SubtitleTrack] = field(default_factory=list)
     has_text_sub: bool = False
     thumbnail_path: Optional[str] = None
+    metadata_loaded: bool = False
 
     @property
     def sub_summary(self) -> str:
+        if not self.metadata_loaded:
+            return "Memeriksa subtitle..."
         text_tracks = [t for t in self.tracks if t.is_text]
         if not text_tracks:
             return "Tanpa soft-sub teks"
@@ -47,13 +50,20 @@ class VideoItem:
 
 
 class SubtitleExtractor:
-    SUPPORTED_VIDEO_EXTS = {".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v", ".ts"}
+    SUPPORTED_VIDEO_EXTS = {
+        ".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v", ".ts",
+        ".flv", ".wmv", ".mpg", ".mpeg", ".m2ts", ".vob", ".3gp",
+        ".asf", ".f4v", ".divx", ".ogv"
+    }
     TEXT_CODECS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
 
     def __init__(self, ffmpeg_path: Optional[str] = None):
         self.ffmpeg_path = self._locate_ffmpeg(ffmpeg_path)
         self.cache_dir = Path.home() / ".cache" / "video_translator" / "thumbnails"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
     def _locate_ffmpeg(self, custom_path: Optional[str] = None) -> str:
         if custom_path and os.path.isfile(custom_path):
@@ -91,17 +101,65 @@ class SubtitleExtractor:
             "FFmpeg executable not found. Place ffmpeg in the 'bin/' folder or install it in your system PATH."
         )
 
-    def scan_folder(self, folder_path: str) -> List[Path]:
-        """Returns list of video paths in folder."""
-        folder = Path(folder_path)
+    def _run_ffmpeg_command(self, cmd: List[str], timeout: Optional[int] = 15) -> subprocess.CompletedProcess:
+        """
+        Executes FFmpeg without popping up any CMD/console window on Windows.
+        """
+        creationflags = 0
+        startupinfo = None
+        if os.name == "nt":
+            creationflags = subprocess.CREATE_NO_WINDOW
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        return subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=creationflags,
+            startupinfo=startupinfo,
+            timeout=timeout
+        )
+
+    def scan_folder(self, folder_path: str, recursive: bool = True, max_depth: int = 4) -> List[Path]:
+        """
+        Returns list of video paths in folder.
+        Searches recursively up to `max_depth` directory levels.
+        """
+        folder = Path(folder_path).resolve()
         if not folder.is_dir():
             return []
-        
-        videos = []
-        for p in folder.iterdir():
-            if p.is_file() and p.suffix.lower() in self.SUPPORTED_VIDEO_EXTS:
-                videos.append(p)
-        return sorted(videos)
+
+        videos: List[Path] = []
+        try:
+            for root, dirs, files in os.walk(folder, topdown=True):
+                # Filter out hidden or system directories
+                dirs[:] = [d for d in dirs if not d.startswith((".", "$")) and d.lower() != "system volume information"]
+
+                if not recursive and root != str(folder):
+                    dirs.clear()
+                    continue
+
+                # Limit depth
+                rel = os.path.relpath(root, folder)
+                depth = len(Path(rel).parts) if rel != "." else 0
+                if depth >= max_depth:
+                    dirs.clear()
+
+                for f in files:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in self.SUPPORTED_VIDEO_EXTS:
+                        videos.append(Path(root) / f)
+        except Exception as e:
+            print(f"Error scanning folder {folder}: {e}")
+
+        # Remove duplicates and sort by name
+        unique = {p.resolve(): p for p in videos}
+        return sorted(list(unique.values()), key=lambda x: x.name.lower())
 
     @staticmethod
     def format_size(size_bytes: int) -> str:
@@ -111,10 +169,10 @@ class SubtitleExtractor:
             size_bytes /= 1024
         return f"{size_bytes:.1f} PB"
 
-    def get_video_item(self, video_path: Path, load_tracks: bool = True) -> VideoItem:
-        """Inspects a video and returns a populated VideoItem with thumbnail."""
+    def get_fast_video_item(self, video_path: Path) -> VideoItem:
+        """Instantly creates a VideoItem from file stats without running FFmpeg."""
         stat = video_path.stat()
-        item = VideoItem(
+        return VideoItem(
             path=video_path,
             name=video_path.name,
             size_bytes=stat.st_size,
@@ -122,19 +180,26 @@ class SubtitleExtractor:
             modified_time=stat.st_mtime,
             tracks=[],
             has_text_sub=False,
-            thumbnail_path=self.get_or_create_thumbnail(video_path)
+            thumbnail_path=None,
+            metadata_loaded=False
         )
-        if load_tracks:
-            tracks = self.get_subtitle_tracks(str(video_path))
+
+    def load_video_item_metadata(self, item: VideoItem) -> VideoItem:
+        """Loads tracks and thumbnail in background."""
+        try:
+            item.thumbnail_path = self.get_or_create_thumbnail(item.path)
+            tracks = self.get_subtitle_tracks(str(item.path))
             item.tracks = tracks
             item.has_text_sub = any(t.is_text for t in tracks)
-
+            item.metadata_loaded = True
+        except Exception as e:
+            print(f"Error reading tracks for {item.name}: {e}")
+            item.metadata_loaded = True
         return item
 
     def get_or_create_thumbnail(self, video_path: Path, time_pos: str = "00:00:02") -> Optional[str]:
-        """Generates a 160x90 JPEG thumbnail for the video and caches it."""
+        """Generates a 160x90 JPEG thumbnail for the video quietly without popping up CMD."""
         try:
-            # Deterministic cache hash based on path + mtime
             file_key = f"{video_path.resolve()}_{video_path.stat().st_mtime}"
             hash_str = hashlib.md5(file_key.encode("utf-8")).hexdigest()
             thumb_file = self.cache_dir / f"{hash_str}.jpg"
@@ -151,14 +216,8 @@ class SubtitleExtractor:
                 "-s", "160x90",
                 str(thumb_file)
             ]
-            res = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
+            self._run_ffmpeg_command(cmd, timeout=8)
+
             if thumb_file.is_file() and thumb_file.stat().st_size > 0:
                 return str(thumb_file)
         except Exception:
@@ -166,17 +225,10 @@ class SubtitleExtractor:
         return None
 
     def get_subtitle_tracks(self, video_path: str) -> List[SubtitleTrack]:
-        """Inspects the video file using ffmpeg and extracts subtitle track information."""
+        """Inspects the video file using ffmpeg quietly without CMD window."""
         cmd = [self.ffmpeg_path, "-hide_banner", "-i", str(video_path)]
         try:
-            res = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
+            res = self._run_ffmpeg_command(cmd, timeout=12)
             output = res.stderr
         except Exception as e:
             raise RuntimeError(f"Failed to inspect video: {e}")
@@ -186,7 +238,7 @@ class SubtitleExtractor:
             r"Stream\s+#(\d+:\d+)(?:\(([^)]+)\))?:\s+Subtitle:\s+([a-zA-Z0-9_\-]+)",
             re.IGNORECASE
         )
-        
+
         lines = output.splitlines()
         current_sub_idx = 0
 
@@ -196,7 +248,7 @@ class SubtitleExtractor:
                 stream_id = match.group(1)
                 lang = match.group(2) or "und"
                 codec = match.group(3).lower()
-                
+
                 title = ""
                 for j in range(i + 1, min(i + 6, len(lines))):
                     if "Stream #" in lines[j]:
@@ -220,7 +272,7 @@ class SubtitleExtractor:
         return tracks
 
     def extract_subtitle(self, video_path: str, sub_index: int, output_path: str) -> str:
-        """Extracts a soft-subtitle stream and writes it as an SRT file."""
+        """Extracts a soft-subtitle stream quietly without CMD popup."""
         out_file = Path(output_path)
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -232,19 +284,12 @@ class SubtitleExtractor:
             "-c:s", "srt",
             str(out_file)
         ]
-        
-        res = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace"
-        )
-        
+
+        res = self._run_ffmpeg_command(cmd, timeout=30)
+
         if res.returncode != 0:
             raise RuntimeError(f"FFmpeg extraction failed:\n{res.stderr}")
-            
+
         if not out_file.is_file() or out_file.stat().st_size == 0:
             raise RuntimeError("Extraction finished but output SRT is empty or not found.")
 
