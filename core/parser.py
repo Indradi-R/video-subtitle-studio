@@ -34,6 +34,7 @@ class SubtitleEntry:
     end_str: str
     source_text: str
     translated_text: str = ""
+    is_selected: bool = True
 
     @property
     def time_range_display(self) -> str:
@@ -77,7 +78,8 @@ class SubtitleParser:
                 start_str=ms_to_srt_time(event.start),
                 end_str=ms_to_srt_time(event.end),
                 source_text=raw_text,
-                translated_text=""
+                translated_text="",
+                is_selected=True
             )
             entries.append(entry)
             idx += 1
@@ -90,6 +92,7 @@ class SubtitleParser:
         output_path: str,
         export_mode: str = "translated",
         export_translated: Optional[bool] = None,
+        only_selected: bool = False,
         offset_ms: int = 0,
         **kwargs
     ) -> str:
@@ -97,14 +100,23 @@ class SubtitleParser:
         Exports entries to an SRT file with UTF-8 encoding.
         Supports both export_mode ("translated", "original", "bilingual_target_top", "bilingual_source_top")
         and legacy export_translated (True/False).
+        If only_selected is True, only entries with is_selected=True will be exported.
         """
         if export_translated is not None:
             export_mode = "translated" if export_translated else "original"
+
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
 
+        if only_selected:
+            active_entries = [e for e in entries if getattr(e, "is_selected", True)]
+            if not active_entries:
+                raise ValueError("Tidak ada baris subtitle yang dipilih untuk diekspor.")
+        else:
+            active_entries = entries
+
         lines: List[str] = []
-        for i, entry in enumerate(entries, start=1):
+        for i, entry in enumerate(active_entries, start=1):
             s_ms = max(0, entry.start_ms + offset_ms)
             e_ms = max(s_ms + 200, entry.end_ms + offset_ms)
             s_str = ms_to_srt_time(s_ms)

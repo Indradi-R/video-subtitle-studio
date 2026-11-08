@@ -342,7 +342,17 @@ class SubtitleTranslatorApp(ctk.CTk):
             hover_color="#572369",
             command=self._on_export_srt
         )
-        self.btn_export.pack(side="left")
+        self.btn_export.pack(side="left", padx=(0, 8))
+
+        self.chk_export_selected_only = ctk.CTkCheckBox(
+            action_bar,
+            text="Hanya Bagian Tercentang",
+            font=ctk.CTkFont(size=11),
+            width=18,
+            command=self._update_export_stats
+        )
+        self.chk_export_selected_only.select()
+        self.chk_export_selected_only.pack(side="left", padx=4)
 
         # Progress bar & Status
         self.lbl_status = ctk.CTkLabel(
@@ -400,7 +410,18 @@ class SubtitleTranslatorApp(ctk.CTk):
         tbl_col_header.grid_columnconfigure(1, weight=4)
         tbl_col_header.grid_columnconfigure(2, weight=4)
 
-        ctk.CTkLabel(tbl_col_header, text="No. & Waktu", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, padx=8, sticky="w")
+        header_col0 = ctk.CTkFrame(tbl_col_header, fg_color="transparent")
+        header_col0.grid(row=0, column=0, padx=8, sticky="w")
+        self.chk_master = ctk.CTkCheckBox(
+            header_col0,
+            text=" No. & Waktu",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=18,
+            command=self._on_toggle_master_checkbox
+        )
+        self.chk_master.select()
+        self.chk_master.pack(side="left")
+
         ctk.CTkLabel(tbl_col_header, text="Teks Asli (Source)", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=1, padx=8, sticky="w")
         ctk.CTkLabel(tbl_col_header, text="Hasil Terjemahan (Bisa Diedit)", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=2, padx=8, sticky="w")
 
@@ -735,6 +756,31 @@ class SubtitleTranslatorApp(ctk.CTk):
             if edited_text:
                 entry.translated_text = edited_text
 
+    def _update_export_stats(self):
+        total = len(self.subtitle_entries)
+        selected = sum(1 for e in self.subtitle_entries if getattr(e, "is_selected", True))
+        if total > 0:
+            stats_text = f"{total} baris ({selected} dipilih)"
+            if getattr(self, "sub_search_keyword", ""):
+                stats_text += f" (Cocok: {len(self.filtered_entries)})"
+            self.lbl_sub_stats.configure(text=stats_text)
+            if hasattr(self, "btn_export"):
+                if hasattr(self, "chk_export_selected_only") and self.chk_export_selected_only.get():
+                    self.btn_export.configure(text=f"💾 3. Export ({selected} Baris)")
+                else:
+                    self.btn_export.configure(text=f"💾 3. Export (Semua {total} Baris)")
+        else:
+            self.lbl_sub_stats.configure(text="0 baris subtitle")
+            if hasattr(self, "btn_export"):
+                self.btn_export.configure(text="💾 3. Export ke .SRT")
+
+    def _on_toggle_master_checkbox(self):
+        state = bool(self.chk_master.get())
+        for e in self.subtitle_entries:
+            e.is_selected = state
+        self._update_export_stats()
+        self._render_current_page()
+
     def _apply_sub_search_and_render(self):
         if not self.sub_search_keyword:
             self.filtered_entries = self.subtitle_entries
@@ -744,15 +790,9 @@ class SubtitleTranslatorApp(ctk.CTk):
                 if self.sub_search_keyword in e.source_text.lower() or self.sub_search_keyword in e.translated_text.lower()
             ]
 
-        total = len(self.subtitle_entries)
-        matching = len(self.filtered_entries)
-        stats_text = f"{total} baris subtitle"
-        if self.sub_search_keyword:
-            stats_text += f" (Cocok: {matching})"
-        self.lbl_sub_stats.configure(text=stats_text)
-        self.lbl_status.configure(text=f"Berhasil memuat {total} baris subtitle.")
+        self._update_export_stats()
+        self.lbl_status.configure(text=f"Berhasil memuat {len(self.subtitle_entries)} baris subtitle.")
         self.progress_bar.set(1.0)
-
         self._render_current_page()
 
     def _render_current_page(self):
@@ -780,15 +820,35 @@ class SubtitleTranslatorApp(ctk.CTk):
             row_frame.grid_columnconfigure(1, weight=4)
             row_frame.grid_columnconfigure(2, weight=4)
 
-            # Time badge
+            # Time badge with individual checkbox
+            time_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
+            time_frame.grid(row=0, column=0, padx=6, sticky="nw")
+
+            chk_var = ctk.BooleanVar(value=getattr(entry, "is_selected", True))
+
+            def make_chk_cmd(e=entry, var=chk_var):
+                def _cmd():
+                    e.is_selected = var.get()
+                    self._update_export_stats()
+                return _cmd
+
+            row_chk = ctk.CTkCheckBox(
+                time_frame,
+                text="",
+                width=18,
+                variable=chk_var,
+                command=make_chk_cmd()
+            )
+            row_chk.pack(side="left", padx=(0, 4), pady=2)
+
             time_lbl = ctk.CTkLabel(
-                row_frame,
+                time_frame,
                 text=f"#{entry.index}\n{entry.start_str[:8]}",
                 font=ctk.CTkFont(size=11),
                 text_color="gray60",
                 justify="left"
             )
-            time_lbl.grid(row=0, column=0, padx=6, sticky="nw")
+            time_lbl.pack(side="left")
 
             # Source text
             src_box = ctk.CTkLabel(
@@ -927,6 +987,15 @@ class SubtitleTranslatorApp(ctk.CTk):
 
         self._sync_current_page_edits()
 
+        only_selected = bool(self.chk_export_selected_only.get()) if hasattr(self, "chk_export_selected_only") else False
+        selected_count = sum(1 for e in self.subtitle_entries if getattr(e, "is_selected", True))
+        if only_selected and selected_count == 0:
+            messagebox.showwarning(
+                "Peringatan",
+                "Tidak ada baris subtitle yang dicentang untuk diekspor.\nCentang baris yang diinginkan atau hilangkan centang 'Hanya Bagian Tercentang'."
+            )
+            return
+
         target_lang_code = SUPPORTED_LANGUAGES.get(self.opt_lang.get(), "id")
         suggested_name = f"{self.selected_video.path.stem}.{target_lang_code}.srt" if self.selected_video else f"subtitle.{target_lang_code}.srt"
         default_dir = str(self.selected_video.path.parent) if self.selected_video else os.getcwd()
@@ -946,10 +1015,12 @@ class SubtitleTranslatorApp(ctk.CTk):
             out_file = SubtitleParser.export_to_srt(
                 self.subtitle_entries,
                 output_path=save_path,
-                export_mode="translated"
+                export_mode="translated",
+                only_selected=only_selected
             )
-            messagebox.showinfo("Berhasil", f"File subtitle berhasil disimpan ke:\n{out_file}")
-            self.lbl_status.configure(text=f"Tersimpan: {Path(out_file).name}")
+            exported_total = selected_count if only_selected else len(self.subtitle_entries)
+            messagebox.showinfo("Berhasil", f"Berhasil mengekspor {exported_total} baris subtitle ke:\n{out_file}")
+            self.lbl_status.configure(text=f"Tersimpan: {Path(out_file).name} ({exported_total} baris)")
         except Exception as e:
             messagebox.showerror("Gagal Export", f"Gagal mengekspor file SRT: {e}")
 
