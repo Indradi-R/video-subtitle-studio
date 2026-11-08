@@ -40,7 +40,7 @@ def run_cli_single(extractor, video_path: Path, track_idx: int, target_code: str
     translator.translate_entries(entries, progress_callback=progress)
 
     out_file = output_path or str(video_path.with_name(f"{video_path.stem}.{target_code}.srt"))
-    SubtitleParser.export_to_srt(entries, out_file, export_translated=True)
+    SubtitleParser.export_to_srt(entries, out_file, export_mode="translated")
     print(f"[SUCCESS] Subtitle saved to: {out_file}")
     return True
 

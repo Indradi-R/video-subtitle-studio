@@ -906,7 +906,7 @@ class SubtitleTranslatorApp(ctk.CTk):
                 translator.translate_entries(entries, batch_size=15)
 
                 out_srt = item.path.with_name(f"{item.path.stem}.{target_lang_code}.srt")
-                SubtitleParser.export_to_srt(entries, str(out_srt), export_translated=True)
+                SubtitleParser.export_to_srt(entries, str(out_srt), export_mode="translated")
                 success_count += 1
             except Exception as ex:
                 print(f"Error processing {item.name}: {ex}")
@@ -946,7 +946,7 @@ class SubtitleTranslatorApp(ctk.CTk):
             out_file = SubtitleParser.export_to_srt(
                 self.subtitle_entries,
                 output_path=save_path,
-                export_translated=True
+                export_mode="translated"
             )
             messagebox.showinfo("Berhasil", f"File subtitle berhasil disimpan ke:\n{out_file}")
             self.lbl_status.configure(text=f"Tersimpan: {Path(out_file).name}")

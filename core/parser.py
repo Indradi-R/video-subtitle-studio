@@ -89,16 +89,17 @@ class SubtitleParser:
         entries: List[SubtitleEntry],
         output_path: str,
         export_mode: str = "translated",
-        offset_ms: int = 0
+        export_translated: Optional[bool] = None,
+        offset_ms: int = 0,
+        **kwargs
     ) -> str:
         """
         Exports entries to an SRT file with UTF-8 encoding.
-        export_mode options:
-          - "translated": Target language only (fallback to source if empty)
-          - "original": Source language only
-          - "bilingual_target_top": Target text on top, source below
-          - "bilingual_source_top": Source text on top, target below
+        Supports both export_mode ("translated", "original", "bilingual_target_top", "bilingual_source_top")
+        and legacy export_translated (True/False).
         """
+        if export_translated is not None:
+            export_mode = "translated" if export_translated else "original"
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
 
