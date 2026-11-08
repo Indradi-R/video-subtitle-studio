@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-def run_cli_single(extractor, video_path: Path, track_idx: int, target_code: str, output_path: str = None):
+def run_cli_single(extractor, video_path: Path, track_idx: int, target_code: str, output_path: str = None, style: str = "casual"):
     from core.parser import SubtitleParser
     from core.translator import SubtitleTranslator
 
@@ -30,8 +30,8 @@ def run_cli_single(extractor, video_path: Path, track_idx: int, target_code: str
 
     print(f"[+] Extracted {len(entries)} subtitle lines.")
 
-    print(f"[*] Translating to language: {target_code}...")
-    translator = SubtitleTranslator(target_lang=target_code)
+    print(f"[*] Translating to language: {target_code} (Style: {style})...")
+    translator = SubtitleTranslator(target_lang=target_code, style=style)
 
     def progress(cur, tot, sample):
         pct = (cur / tot) * 100
@@ -60,7 +60,7 @@ def run_cli(args):
         print(f"[*] Found {len(videos)} video files in folder: {folder}")
         success = 0
         for v in videos:
-            if run_cli_single(extractor, v, args.track, args.lang):
+            if run_cli_single(extractor, v, args.track, args.lang, style=args.style):
                 success += 1
         print(f"\n[SUMMARY] Successfully processed {success}/{len(videos)} videos.")
     elif args.video:
@@ -68,7 +68,7 @@ def run_cli(args):
         if not video_path.is_file():
             print(f"Error: Video file not found: {video_path}")
             sys.exit(1)
-        run_cli_single(extractor, video_path, args.track, args.lang, args.output)
+        run_cli_single(extractor, video_path, args.track, args.lang, args.output, style=args.style)
 
 
 def run_gui():
@@ -83,6 +83,7 @@ def main():
     parser.add_argument("--folder", type=str, help="Path to folder of videos for batch translation")
     parser.add_argument("--track", type=int, default=0, help="Subtitle track index (default: 0)")
     parser.add_argument("--lang", type=str, default="id", help="Target language code, e.g. id, en, ja (default: id)")
+    parser.add_argument("--style", type=str, default="casual", choices=["casual", "natural", "formal"], help="Translation tone: casual (sehari-hari), natural (standar bioskop), formal (baku)")
     parser.add_argument("--output", type=str, help="Output .srt path (default: [video_stem].[lang].srt)")
     parser.add_argument("--ffmpeg", type=str, help="Custom path to ffmpeg executable")
 

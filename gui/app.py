@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw
 
 from core.extractor import SubtitleExtractor, SubtitleTrack, VideoItem
 from core.parser import SubtitleEntry, SubtitleParser
-from core.translator import SUPPORTED_LANGUAGES, SubtitleTranslator
+from core.translator import SUPPORTED_LANGUAGES, TRANSLATION_STYLES, SubtitleTranslator
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -293,10 +293,22 @@ class SubtitleTranslatorApp(ctk.CTk):
         self.opt_lang = ctk.CTkOptionMenu(
             controls_frame,
             values=self.lang_names,
-            width=180
+            width=160
         )
         self.opt_lang.set("Indonesian (id)")
-        self.opt_lang.pack(side="left")
+        self.opt_lang.pack(side="left", padx=(0, 14))
+
+        lbl_style = ctk.CTkLabel(controls_frame, text="Gaya Bahasa:", font=ctk.CTkFont(size=12))
+        lbl_style.pack(side="left", padx=(0, 6))
+
+        self.style_names = list(TRANSLATION_STYLES.keys())
+        self.opt_style = ctk.CTkOptionMenu(
+            controls_frame,
+            values=self.style_names,
+            width=220
+        )
+        self.opt_style.set("Santai / Sehari-hari (Film & Anime)")
+        self.opt_style.pack(side="left")
 
         # 2. Action Bar
         action_bar = ctk.CTkFrame(right_panel, fg_color="transparent")
@@ -767,7 +779,8 @@ class SubtitleTranslatorApp(ctk.CTk):
         ).start()
 
     def _translation_worker(self, target_lang_code: str):
-        translator = SubtitleTranslator(source_lang="auto", target_lang=target_lang_code)
+        chosen_style = TRANSLATION_STYLES.get(self.opt_style.get(), "casual")
+        translator = SubtitleTranslator(source_lang="auto", target_lang=target_lang_code, style=chosen_style)
 
         def progress_cb(current, total, sample):
             prog = current / total if total > 0 else 0
@@ -812,7 +825,8 @@ class SubtitleTranslatorApp(ctk.CTk):
         threading.Thread(target=self._batch_worker, args=(target_lang_code,), daemon=True).start()
 
     def _batch_worker(self, target_lang_code: str):
-        translator = SubtitleTranslator(source_lang="auto", target_lang=target_lang_code)
+        chosen_style = TRANSLATION_STYLES.get(self.opt_style.get(), "casual")
+        translator = SubtitleTranslator(source_lang="auto", target_lang=target_lang_code, style=chosen_style)
         total_videos = len(self.all_video_items)
         success_count = 0
 
