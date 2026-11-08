@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Build & PyInstaller
+build/
+dist/
+*.spec
+
+# Cache & Temp
+.cache/
+*.temp*.srt
+test_samples/*.id.srt
+test_samples/test_export.srt
+test_samples/test_bilingual.srt
+test_samples/final_test.srt
+test_samples/thumb_test.jpg
+test_samples/default_thumb.jpg
+
+# Binaries (FFmpeg can be downloaded or generated via static_ffmpeg)
+bin/ffmpeg.exe
+
+# IDE & OS
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db

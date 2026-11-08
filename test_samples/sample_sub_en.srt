@@ -1,0 +1,15 @@
+﻿1
+00:00:01,000 --> 00:00:03,500
+Welcome to the video translator test.
+
+2
+00:00:04,000 --> 00:00:06,800
+This desktop application is lightweight and fast.
+
+3
+00:00:07,000 --> 00:00:09,500
+It extracts soft subtitles directly from your videos.
+
+4
+00:00:10,000 --> 00:00:13,000
+Then it translates them and exports them to an SRT file.
